@@ -1,2 +1,1 @@
-# HTR_LTR
-This is a novel gait recognition model.
+🔒 The code will be released after the paper is accepted.
