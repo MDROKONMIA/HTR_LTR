@@ -1,0 +1,83 @@
+data_cfg:
+  dataset_name: OULP
+  test_dataset_name: OULP
+  dataset_root: "dataset_path"
+  dataset_partition: "./datasets/OULP/OULP.json"
+  num_workers: 1
+  remove_no_gallery: false
+
+evaluator_cfg:
+  enable_float16: false
+  restore_ckpt_strict: true
+  restore_hint: 180000
+  save_name: HTR_LTR
+  metric: euc   # alternative: cos
+
+  sampler:
+    type: InferenceSampler
+    batch_size: 1
+    sample_type: all_ordered
+
+loss_cfg:
+  - type: TripletLoss
+    log_prefix: triplet
+    loss_term_weight: 1.0
+    margin: 0.3
+
+  - type: CrossEntropyLoss
+    log_prefix: softmax
+    loss_term_weight: 1.0
+    scale: 1
+    label_smooth: false
+    log_accuracy: true
+
+model_cfg:
+  model: HTRLTR
+  in_channels: [32, 64, 128, 256]
+  class_num: 74
+  alpha: 2
+  tau: 2
+
+optimizer_cfg:
+  solver: Adam
+  lr: 1.0e-4
+  weight_decay: 5.0e-4
+
+scheduler_cfg:
+  scheduler: MultiStepLR
+  gamma: 0.1
+  milestones:
+    - 70000
+    - 110000
+    - 140000
+
+trainer_cfg:
+  enable_float16: true
+  with_test: true
+  log_iter: 100
+
+  restore_ckpt_strict: true
+  restore_hint: 0
+
+  save_iter: 10000
+  save_name: HTR_LTR
+
+  sync_BN: false
+  total_iter: 180000
+
+  sampler:
+    type: TripletSampler
+    batch_shuffle: false
+    batch_size: [8, 4]
+    frames_num_fixed: 30
+    frames_skip_num: 0
+    sample_type: fixed_ordered
+
+  transform:
+    - type: Compose
+      trf_cfg:
+        - type: BaseSilCuttingTransform
+        - type: RandomRotate
+          prob: 0.3
+        - type: RandomErasing
+          prob: 0.3

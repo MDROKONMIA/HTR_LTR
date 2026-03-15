@@ -1,0 +1,89 @@
+# NOTE:
+# The batch_size must be equal to the number of GPUs during the test phase.
+
+data_cfg:
+  dataset_name: Gait3D
+  test_dataset_name: Gait3D
+  dataset_root: "dataset path"
+  dataset_partition: "./datasets/Gait3D/Gait3D.json"
+  num_workers: 2
+  remove_no_gallery: false   # Remove probe if no gallery exists
+
+evaluator_cfg:
+  enable_float16: false
+  restore_ckpt_strict: true
+  restore_hint: 250000
+  save_name: HTR_LTR
+  eval_func: evaluate_Gait3D
+
+  sampler:
+    type: InferenceSampler
+    batch_size: 4
+    sample_type: all_ordered
+
+  transform:
+    - type: BaseSilCuttingTransform
+
+loss_cfg:
+  - type: TripletLoss
+    log_prefix: triplet
+    loss_term_weight: 1.0
+    margin: 0.2
+
+  - type: CrossEntropyLoss
+    log_prefix: softmax
+    loss_term_weight: 0.2
+    scale: 16
+    label_smooth: false
+    log_accuracy: true
+
+model_cfg:
+  model: HTRLTR
+  in_channels: [32, 64, 128, 256]
+  class_num: 3000
+  alpha: 2
+  tau: 2
+
+optimizer_cfg:
+  solver: Adam
+  lr: 1.0e-4
+  weight_decay: 5.0e-4
+
+scheduler_cfg:
+  scheduler: MultiStepLR
+  gamma: 0.1
+  milestones:
+    - 150000
+    - 200000
+    - 220000
+
+trainer_cfg:
+  enable_float16: true
+  with_test: true
+  log_iter: 100
+
+  restore_ckpt_strict: true
+  restore_hint: 0
+
+  save_iter: 10000
+  save_name: HTR_LTR
+
+  sync_BN: true
+  total_iter: 250000
+
+  sampler:
+    type: TripletSampler
+    batch_shuffle: true
+    batch_size: [32, 4]
+    frames_num_fixed: 30
+    frames_skip_num: 0
+    sample_type: fixed_ordered
+
+  transform:
+    - type: Compose
+      trf_cfg:
+        - type: BaseSilCuttingTransform
+        - type: RandomRotate
+          prob: 0.3
+        - type: RandomErasing
+          prob: 0.3
