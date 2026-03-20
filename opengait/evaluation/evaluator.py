@@ -1,5 +1,3 @@
-import csv
-import csv
 import os
 import pickle
 
@@ -70,149 +68,69 @@ def cross_view_gallery_evaluation(feature, label, seq_type, view, dataset, metri
 
 # Modified From https://github.com/AbnerHqC/GaitSet/blob/master/model/utils/evaluator.py
 
+def single_view_gallery_evaluation(feature, label, seq_type, view, dataset, metric, dataset_path):
+    probe_seq_dict = {'CASIA-B': {'NM': ['nm-05', 'nm-06'], 'BG': ['bg-01', 'bg-02'], 'CL': ['cl-01', 'cl-02']},
+                      'OUMVLP': {'NM': ['00']},
+                      'CASIA-E': {'NM': ['H-scene2-nm-1', 'H-scene2-nm-2', 'L-scene2-nm-1', 'L-scene2-nm-2', 'H-scene3-nm-1', 'H-scene3-nm-2', 'L-scene3-nm-1', 'L-scene3-nm-2', 'H-scene3_s-nm-1', 'H-scene3_s-nm-2', 'L-scene3_s-nm-1', 'L-scene3_s-nm-2', ],
+                                  'BG': ['H-scene2-bg-1', 'H-scene2-bg-2', 'L-scene2-bg-1', 'L-scene2-bg-2', 'H-scene3-bg-1', 'H-scene3-bg-2', 'L-scene3-bg-1', 'L-scene3-bg-2', 'H-scene3_s-bg-1', 'H-scene3_s-bg-2', 'L-scene3_s-bg-1', 'L-scene3_s-bg-2'],
+                                  'CL': ['H-scene2-cl-1', 'H-scene2-cl-2', 'L-scene2-cl-1', 'L-scene2-cl-2', 'H-scene3-cl-1', 'H-scene3-cl-2', 'L-scene3-cl-1', 'L-scene3-cl-2', 'H-scene3_s-cl-1', 'H-scene3_s-cl-2', 'L-scene3_s-cl-1', 'L-scene3_s-cl-2']
+                                  },
+                      'SUSTech1K': {'Normal': ['01-nm'], 'Bag': ['bg'], 'Clothing': ['cl'], 'Carrying':['cr'], 'Umberalla': ['ub'], 'Uniform': ['uf'], 'Occlusion': ['oc'],'Night': ['nt'], 'Overall': ['01','02','03','04']},
+                      'OULP': {'NM': ['seq01']}
+                      }
+    gallery_seq_dict = {'CASIA-B': ['nm-01', 'nm-02', 'nm-03', 'nm-04'],
+                        'OUMVLP': ['01'],
+                        'CASIA-E': ['H-scene1-nm-1', 'H-scene1-nm-2', 'L-scene1-nm-1', 'L-scene1-nm-2'],
+                        'SUSTech1K': ['00-nm'],
+                        'OULP': ['seq00']
+                        }
+    msg_mgr = get_msg_mgr()
+    acc = {}
+    view_list = sorted(np.unique(view))
+    num_rank = 1
+    if dataset == 'CASIA-E':
+        view_list.remove("270")
+    if dataset == 'SUSTech1K':
+        num_rank = 5
+    view_num = len(view_list)
 
-def single_view_gallery_evaluation(feature_array, label_array, sequence_type_array, view_array,
-                                   dataset_name, metric_function, dataset_base_path,
-                                   results_csv_path="evaluation_results.csv"):
-    probe_sequences = {
-        'CASIA-B': {'NM': ['nm-05', 'nm-06'], 'BG': ['bg-01', 'bg-02'], 'CL': ['cl-01', 'cl-02']},
-        'OUMVLP': {'NM': ['00']},
-        'OULP':{'NM':['seq01']}
-    }
+    for (type_, probe_seq) in probe_seq_dict[dataset].items():
+        acc[type_] = np.zeros((view_num, view_num, num_rank)) - 1.
+        for (v1, probe_view) in enumerate(view_list):
+            pseq_mask = np.isin(seq_type, probe_seq) & np.isin(
+                view, probe_view)
+            pseq_mask = pseq_mask if 'SUSTech1K' not in dataset   else np.any(np.asarray(
+                        [np.char.find(seq_type, probe)>=0 for probe in probe_seq]), axis=0
+                            ) & np.isin(view, probe_view) # For SUSTech1K only
+            probe_x = feature[pseq_mask, :]
+            probe_y = label[pseq_mask]
 
-    gallery_sequences = {
-        'CASIA-B': ['nm-01', 'nm-02', 'nm-03', 'nm-04'],
-        'OUMVLP': ['01'],
-        'OULP': ['seq00']
-    }
+            for (v2, gallery_view) in enumerate(view_list):
+                gseq_mask = np.isin(seq_type, gallery_seq_dict[dataset]) & np.isin(
+                    view, [gallery_view])
+                gseq_mask = gseq_mask if 'SUSTech1K' not in dataset  else np.any(np.asarray(
+                            [np.char.find(seq_type, gallery)>=0 for gallery in gallery_seq_dict[dataset]]), axis=0
+                                ) & np.isin(view, [gallery_view]) # For SUSTech1K only
+                gallery_y = label[gseq_mask]
+                gallery_x = feature[gseq_mask, :]
+                dist = cuda_dist(probe_x, gallery_x, metric)
+                idx = dist.topk(num_rank, largest=False)[1].cpu().numpy()
+                acc[type_][v1, v2, :] = np.round(np.sum(np.cumsum(np.reshape(probe_y, [-1, 1]) == gallery_y[idx[:, 0:num_rank]], 1) > 0,
+                                                     0) * 100 / dist.shape[0], 2)
 
-    message_manager = get_msg_mgr()
-    accuracy_matrix = {}
-
-    view_list = sorted(np.unique(view_array))
-    number_of_views = len(view_list)
-    top_rank = 1
-
-    total_evaluation_pairs = 0
-    true_positive_matches = 0
-    false_positive_matches = 0
-    discarded_pairs = 0
-
-    logged_paths = []  # to store CSV data
-
-    sequence_type_array_copy = np.array(sequence_type_array)
-
-    for gait_condition, probe_sequence_list in probe_sequences[dataset_name].items():
-        accuracy_matrix[gait_condition] = np.full((number_of_views, number_of_views), -1.0)
-
-        for probe_view_index, probe_view in enumerate(view_list):
-            probe_mask = np.isin(sequence_type_array, probe_sequence_list) & np.isin(view_array, probe_view)
-            probe_features = feature_array[probe_mask]
-            probe_labels = label_array[probe_mask]
-            probe_sequences_selected = sequence_type_array_copy[probe_mask]
-
-            for gallery_view_index, gallery_view in enumerate(view_list):
-                gallery_mask = np.isin(sequence_type_array, gallery_sequences[dataset_name]) & np.isin(view_array, gallery_view)
-                gallery_features = feature_array[gallery_mask]
-                gallery_labels = label_array[gallery_mask]
-                gallery_sequences_selected = sequence_type_array_copy[gallery_mask]
-
-                distance_matrix = cuda_dist(probe_features, gallery_features, metric_function)
-                sorted_indices = distance_matrix.cpu().sort(1)[1].numpy()
-
-                filtered_probe_labels = np.copy(probe_labels)
-                probe_labels_reshaped = np.reshape(filtered_probe_labels, [-1, 1])
-                top_gallery_labels = gallery_labels[sorted_indices[:, 0:top_rank]]
-
-                indices_to_remove = []
-
-                for sample_index in range(len(filtered_probe_labels)):
-                    current_probe_id = str(probe_labels_reshaped[sample_index][0])
-                    current_probe_sequence = str(probe_sequences_selected[sample_index])
-                    current_gallery_id = str(top_gallery_labels[sample_index][0])
-                    current_gallery_sequence = str(gallery_sequences_selected[sorted_indices[sample_index][0]])
-
-                    probe_path = os.path.join(dataset_base_path, current_probe_id, current_probe_sequence, str(probe_view))
-                    gallery_path = os.path.join(dataset_base_path, current_gallery_id, current_gallery_sequence, str(gallery_view))
-                    true_positive_path = os.path.join(dataset_base_path, current_probe_id, current_gallery_sequence, str(gallery_view))
-
-                    probe_file = os.path.join(probe_path, f"{probe_view}.pkl")
-                    gallery_file = os.path.join(gallery_path, f"{gallery_view}.pkl")
-                    true_positive_file = os.path.join(true_positive_path, f"{gallery_view}.pkl")
-
-                    with open(probe_file, 'rb') as file:
-                        probe_data = np.array(pickle.load(file))
-
-                    with open(gallery_file, 'rb') as file:
-                        gallery_data = np.array(pickle.load(file))
-
-                    true_positive_exists = os.path.exists(true_positive_path)
-                    if true_positive_exists:
-                        with open(true_positive_file, 'rb') as file:
-                            true_positive_data = np.array(pickle.load(file))
-                        max_true_frames = min(len(true_positive_data), 30)
-                    else:
-                        max_true_frames = -1
-
-                    max_probe_frames = min(len(probe_data), 30)
-                    max_gallery_frames = min(len(gallery_data), 30)
-
-                    if probe_view != gallery_view:
-                        total_evaluation_pairs += 1
-
-                        if max_true_frames <= 15 or not true_positive_exists:
-                            discarded_pairs += 1
-                            indices_to_remove.append(sample_index)
-                            logged_paths.append({
-                                "probe_pkl": probe_file,
-                                "gallery_pkl": gallery_file,
-                                "true_positive_pkl": true_positive_file if true_positive_exists else "N/A",
-                                "status": "discarded"
-                            })
-                        elif probe_labels_reshaped[sample_index][0] == top_gallery_labels[sample_index][0]:
-                            true_positive_matches += 1
-                        else:
-                            false_positive_matches += 1
-                            logged_paths.append({
-                                "probe_pkl": probe_file,
-                                "gallery_pkl": gallery_file,
-                                "true_positive_pkl": true_positive_file if true_positive_exists else "N/A",
-                                "status": "false_positive"
-                            })
-
-                if indices_to_remove:
-                    indices_to_remove = np.array(indices_to_remove)
-                    sorted_indices = np.delete(sorted_indices, indices_to_remove, axis=0)
-                    filtered_probe_labels = np.delete(filtered_probe_labels, indices_to_remove, axis=0)
-
-                total_samples = len(filtered_probe_labels)
-                if total_samples > 0:
-                    correct_predictions = np.sum(
-                        np.cumsum(np.reshape(filtered_probe_labels, [-1, 1]) == gallery_labels[sorted_indices[:, 0:top_rank]], axis=1) > 0,
-                        axis=0)
-                    accuracy_matrix[gait_condition][probe_view_index, gallery_view_index] = np.round(
-                        correct_predictions * 100.0 / total_samples, 2)
-
-    # Write results to CSV
-    if logged_paths:
-        with open(results_csv_path, mode='w', newline='') as csv_file:
-            writer = csv.DictWriter(csv_file, fieldnames=["probe_pkl", "gallery_pkl", "true_positive_pkl", "status"])
-            writer.writeheader()
-            for entry in logged_paths:
-                writer.writerow(entry)
-
-    result_summary = {}
-    message_manager.log_info('===Rank-1 (Exclude identical-view cases)===')
-    output_string = ""
-    for gait_condition in probe_sequences[dataset_name]:
-        view_accuracy = de_diag(accuracy_matrix[gait_condition], each_angle=True)
-        message_manager.log_info(f'{gait_condition}: {view_accuracy}')
-        average_accuracy = np.mean(view_accuracy)
-        result_summary[f'scalar/test_accuracy/{gait_condition}'] = average_accuracy
-        output_string += f"{gait_condition}: {average_accuracy:.2f}%\t"
-
-    message_manager.log_info(output_string)
-    return result_summary
+    result_dict = {}
+    msg_mgr.log_info('===Rank-1 (Exclude identical-view cases)===')
+    out_str = ""
+    for rank in range(num_rank):
+        out_str = ""
+        for type_ in probe_seq_dict[dataset].keys():
+            sub_acc = de_diag(acc[type_][:,:,rank], each_angle=True)
+            if rank == 0:
+                msg_mgr.log_info(f'{type_}@R{rank+1}: {sub_acc}')
+                result_dict[f'scalar/test_accuracy/{type_}@R{rank+1}'] = np.mean(sub_acc)
+            out_str += f"{type_}@R{rank+1}: {np.mean(sub_acc):.2f}%\t"
+        msg_mgr.log_info(out_str)
+    return result_dict
 
 
 def evaluate_indoor_dataset(data, dataset, dataset_path, metric='euc', cross_view_gallery=False):
@@ -228,7 +146,7 @@ def evaluate_indoor_dataset(data, dataset, dataset_path, metric='euc', cross_vie
         return single_view_gallery_evaluation(feature, label, seq_type, view, dataset, metric, dataset_path)
 
 
-def evaluate_Gait3D(data, dataset,dataset_path, metric='euc'):
+def evaluate_Gait3D(data, dataset, dataset_path, metric='euc'):
     msg_mgr = get_msg_mgr()
 
     features, labels, cams, time_seqs = data['embeddings'], data['labels'], data['types'], data['views']
