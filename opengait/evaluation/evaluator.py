@@ -72,12 +72,12 @@ def single_view_gallery_evaluation(feature_array, label_array, sequence_type_arr
                                    dataset_name, metric_function, dataset_base_path, msg_mgr=None):
     probe_sequences = {
         'CASIA-B': {'NM': ['nm-05', 'nm-06'], 'BG': ['bg-01', 'bg-02'], 'CL': ['cl-01', 'cl-02']},
-        'OUMVLP': {'NM': ['seq01']}
+        'OULP': {'NM': ['seq01']}
     }
 
     gallery_sequences = {
         'CASIA-B': ['nm-01', 'nm-02', 'nm-03', 'nm-04'],
-        'OUMVLP': ['seq00']
+        'OULP': ['seq00']
     }
 
     accuracy_matrix = {}
