@@ -1,10 +1,11 @@
+import csv
 import os
 import pickle
 
 import numpy as np
 from utils import get_msg_mgr, mkdir
 
-from .metric import cuda_dist, compute_ACC_mAP, evaluate_rank, evaluate_many
+from .metric import cuda_dist, compute_ACC_mAP, evaluate_many
 
 
 def de_diag(acc, each_angle=False):
@@ -16,7 +17,7 @@ def de_diag(acc, each_angle=False):
     return result
 
 
-def cross_view_gallery_evaluation(feature, label, seq_type, view, dataset, metric, dataset_path):
+def cross_view_gallery_evaluation(feature, label, seq_type, view, dataset, metric):
     '''More details can be found: More details can be found in
         [A Comprehensive Study on the Evaluation of Silhouette-based Gait Recognition](https://ieeexplore.ieee.org/document/9928336).
     '''
@@ -67,60 +68,101 @@ def cross_view_gallery_evaluation(feature, label, seq_type, view, dataset, metri
 
 
 # Modified From https://github.com/AbnerHqC/GaitSet/blob/master/model/utils/evaluator.py
-
-
-def single_view_gallery_evaluation(feature, label, seq_type, view, dataset, metric):
-    probe_seq_dict  = {
+def single_view_gallery_evaluation(feature_array, label_array, sequence_type_array, view_array,
+                                   dataset_name, metric_function, dataset_base_path, msg_mgr=None):
+    probe_sequences = {
         'CASIA-B': {'NM': ['nm-05', 'nm-06'], 'BG': ['bg-01', 'bg-02'], 'CL': ['cl-01', 'cl-02']},
-        'OULP': {'NM': ['seq01']}
+        'OUMVLP': {'NM': ['seq01']}
     }
 
-    gallery_seq_dict  = {
+    gallery_sequences = {
         'CASIA-B': ['nm-01', 'nm-02', 'nm-03', 'nm-04'],
-        'OULP': ['seq00']
+        'OUMVLP': ['seq00']
     }
 
+    accuracy_matrix = {}
     msg_mgr = get_msg_mgr()
-    acc = {}
-    view_list = sorted(np.unique(view))
-    num_rank = 1
-    if dataset == 'CASIA-E':
-        view_list.remove("270")
-    if dataset == 'SUSTech1K':
-        num_rank = 5 
-    view_num = len(view_list)
+    view_list = sorted(np.unique(view_array))
+    top_rank = 1
 
-    for (type_, probe_seq) in probe_seq_dict[dataset].items():
-        acc[type_] = np.zeros((view_num, view_num, num_rank)) - 1.
-        for (v1, probe_view) in enumerate(view_list):
-            pseq_mask = np.isin(seq_type, probe_seq) & np.isin(
-                view, probe_view)
-            pseq_mask = pseq_mask if 'SUSTech1K' not in dataset   else np.any(np.asarray(
-                        [np.char.find(seq_type, probe)>=0 for probe in probe_seq]), axis=0
-                            ) & np.isin(view, probe_view) # For SUSTech1K only
-            probe_x = feature[pseq_mask, :]
-            probe_y = label[pseq_mask]
+    # --- Step 1: Preload all gallery valid frame counts ---
+    gallery_frame_count = {}
+    for label in np.unique(label_array):
+        gallery_frame_count[label] = {}
+        for gallery_seq in gallery_sequences[dataset_name]:
+            gallery_frame_count[label][gallery_seq] = {}
+            for gallery_view in view_list:
+                path = os.path.join(dataset_base_path, str(label), gallery_seq, str(gallery_view))
+                if os.path.exists(path):
+                    try:
+                        with open(os.path.join(path, f"{gallery_view}.pkl"), 'rb') as f:
+                            data = np.array(pickle.load(f))
+                        gallery_frame_count[label][gallery_seq][gallery_view] = len(data)
+                    except Exception:
+                        gallery_frame_count[label][gallery_seq][gallery_view] = -1
+                else:
+                    gallery_frame_count[label][gallery_seq][gallery_view] = -1
 
-            for (v2, gallery_view) in enumerate(view_list):
-                gseq_mask = np.isin(seq_type, gallery_seq_dict[dataset]) & np.isin(
-                    view, [gallery_view])
-                gseq_mask = gseq_mask if 'SUSTech1K' not in dataset  else np.any(np.asarray(
-                            [np.char.find(seq_type, gallery)>=0 for gallery in gallery_seq_dict[dataset]]), axis=0
-                                ) & np.isin(view, [gallery_view]) # For SUSTech1K only
-                gallery_y = label[gseq_mask]
-                gallery_x = feature[gseq_mask, :]
-                dist = cuda_dist(probe_x, gallery_x, metric)
-                idx = dist.topk(num_rank, largest=False)[1].cpu().numpy()
-                acc[type_][v1, v2, :] = np.round(np.sum(np.cumsum(np.reshape(probe_y, [-1, 1]) == gallery_y[idx[:, 0:num_rank]], 1) > 0,
-                                                     0) * 100 / dist.shape[0], 2)
+    sequence_type_array_copy = np.array(sequence_type_array)
 
+    # --- Step 2: Evaluation Loop ---
+    for gait_condition, probe_sequence_list in probe_sequences[dataset_name].items():
+        accuracy_matrix[gait_condition] = np.full((len(view_list), len(view_list), top_rank), -1.0)
+
+        for probe_view_index, probe_view in enumerate(view_list):
+            probe_mask = np.isin(sequence_type_array, probe_sequence_list) & (view_array == probe_view)
+            probe_features = feature_array[probe_mask]
+            probe_labels = label_array[probe_mask]
+
+            for gallery_view_index, gallery_view in enumerate(view_list):
+                gallery_mask = np.isin(sequence_type_array, gallery_sequences[dataset_name]) & (view_array == gallery_view)
+                gallery_features = feature_array[gallery_mask]
+                gallery_labels = label_array[gallery_mask]
+                gallery_sequences_selected = sequence_type_array_copy[gallery_mask]
+
+                if len(probe_features) == 0 or len(gallery_features) == 0:
+                    continue
+
+                # Compute distance matrix and get sorted indices
+                distance_matrix = cuda_dist(probe_features, gallery_features, metric_function)
+                sorted_indices = distance_matrix.cpu().sort(1)[1].numpy()
+
+                # --- Vectorized probe filtering ---
+                # Create a 2D array: (num_probes, num_gallery_sequences)
+                valid_matrix = np.zeros((len(probe_labels), len(gallery_sequences[dataset_name])), dtype=bool)
+                for seq_idx, candidate_seq in enumerate(gallery_sequences[dataset_name]):
+                    # Lookup frame counts for all probes
+                    frames = np.array([gallery_frame_count[label].get(candidate_seq, {}).get(gallery_view, -1)
+                                       for label in probe_labels])
+                    valid_matrix[:, seq_idx] = frames > 15
+
+                # Any valid gallery sequence per probe
+                valid_probe_mask = np.any(valid_matrix, axis=1)
+
+                # Apply mask
+                filtered_probe_labels = probe_labels[valid_probe_mask]
+                filtered_sorted_indices = sorted_indices[valid_probe_mask]
+
+                total_samples = len(filtered_probe_labels)
+                if total_samples > 0:
+                    correct_predictions = np.sum(
+                        np.cumsum(
+                            np.reshape(filtered_probe_labels, [-1, 1]) == gallery_labels[filtered_sorted_indices[:, 0:top_rank]], axis=1
+                        ) > 0,
+                        axis=0
+                    )
+                    accuracy_matrix[gait_condition][probe_view_index, gallery_view_index,:] = np.round(
+                        correct_predictions * 100.0 / total_samples, 2
+                    )
+
+    # --- Step 3: Result Logging ---
     result_dict = {}
     msg_mgr.log_info('===Rank-1 (Exclude identical-view cases)===')
-    out_str = ""
+    num_rank = top_rank
     for rank in range(num_rank):
         out_str = ""
-        for type_ in probe_seq_dict[dataset].keys():
-            sub_acc = de_diag(acc[type_][:,:,rank], each_angle=True)
+        for type_ in probe_sequences[dataset_name].keys():
+            sub_acc = de_diag(accuracy_matrix[type_][:,:,rank], each_angle=True)
             if rank == 0:
                 msg_mgr.log_info(f'{type_}@R{rank+1}: {sub_acc}')
                 result_dict[f'scalar/test_accuracy/{type_}@R{rank+1}'] = np.mean(sub_acc)
@@ -134,143 +176,94 @@ def evaluate_indoor_dataset(data, dataset, dataset_path, metric='euc', cross_vie
     label = np.array(label)
     view = np.array(view)
 
-    if dataset not in ('CASIA-B', 'OUMVLP', 'OULP'):
+    if dataset not in ('CASIA-B', 'OUMVLP'):
         raise KeyError("DataSet %s hasn't been supported !" % dataset)
     if cross_view_gallery:
-        return cross_view_gallery_evaluation(feature, label, seq_type, view, dataset, metric, dataset_path)
+        return cross_view_gallery_evaluation(
+            feature, label, seq_type, view, dataset, metric)
     else:
-        return single_view_gallery_evaluation(feature, label, seq_type, view, dataset, metric, dataset_path)
+        return single_view_gallery_evaluation(
+            feature, label, seq_type, view, dataset, metric, dataset_path)
 
 
-def evaluate_Gait3D(data, dataset, dataset_path, metric='euc'):
+
+def evaluate_CCPG(data, dataset,dataset_path, metric='euc'):
     msg_mgr = get_msg_mgr()
-
-    features, labels, cams, time_seqs = data['embeddings'], data['labels'], data['types'], data['views']
-    import json
-    probe_sets = json.load(
-        open('./datasets/Gait3D/Gait3D.json', 'rb'))['PROBE_SET']
-    probe_mask = []
-    for id, ty, sq in zip(labels, cams, time_seqs):
-        if '-'.join([id, ty, sq]) in probe_sets:
-            probe_mask.append(True)
-        else:
-            probe_mask.append(False)
-    probe_mask = np.array(probe_mask)
-
-    # probe_features = features[:probe_num]
-    probe_features = features[probe_mask]
-    # gallery_features = features[probe_num:]
-    gallery_features = features[~probe_mask]
-    # probe_lbls = np.asarray(labels[:probe_num])
-    # gallery_lbls = np.asarray(labels[probe_num:])
-    probe_lbls = np.asarray(labels)[probe_mask]
-    gallery_lbls = np.asarray(labels)[~probe_mask]
-
-    results = {}
-    msg_mgr.log_info(f"The test metric you choose is {metric}.")
-    dist = cuda_dist(probe_features, gallery_features, metric).cpu().numpy()
-    cmc, all_AP, all_INP = evaluate_rank(dist, probe_lbls, gallery_lbls)
-
-    mAP = np.mean(all_AP)
-    mINP = np.mean(all_INP)
-    for r in [1, 5, 10]:
-        results['scalar/test_accuracy/Rank-{}'.format(r)] = cmc[r - 1] * 100
-    results['scalar/test_accuracy/mAP'] = mAP * 100
-    results['scalar/test_accuracy/mINP'] = mINP * 100
-
-    # print_csv_format(dataset_name, results)
-    msg_mgr.log_info(results)
-    return results
-
-def evaluate_CCPG(data, dataset, dataset_path, metric='euc'):
-    msg_mgr = get_msg_mgr()
-
     feature, label, seq_type, view = data['embeddings'], data['labels'], data['types'], data['views']
 
     label = np.array(label)
+    seq_type = np.array(seq_type)
     for i in range(len(view)):
         view[i] = view[i].split("_")[0]
     view_np = np.array(view)
     view_list = list(set(view))
     view_list.sort()
-
     view_num = len(view_list)
 
-    probe_seq_dict = {'CCPG': [["U0_D0_BG", "U0_D0"], [
-        "U3_D3"], ["U1_D0"], ["U0_D0_BG"]]}
+    probe_seq_dict = {'CCPG': [["U0_D0_BG", "U0_D0"], ["U3_D3"], ["U1_D0"], ["U0_D0_BG"]]}
 
-    gallery_seq_dict = {
-        'CCPG': [["U1_D1", "U2_D2", "U3_D3"], ["U0_D3"], ["U1_D1"], ["U0_D0"]]}
+    gallery_seq_dict = {'CCPG': [["U1_D1", "U2_D2", "U3_D3"], ["U0_D3"], ["U1_D1"], ["U0_D0"]]}
     if dataset not in (probe_seq_dict or gallery_seq_dict):
         raise KeyError("DataSet %s hasn't been supported !" % dataset)
     num_rank = 5
-    acc = np.zeros([len(probe_seq_dict[dataset]),
-                   view_num, view_num, num_rank]) - 1.
+    acc = np.zeros([len(probe_seq_dict[dataset]), view_num, view_num, num_rank]) - 1.
 
-    ap_save = []
-    cmc_save = []
-    minp = []
+    cmc_save, ap_save, minp = [], [], []
     for (p, probe_seq) in enumerate(probe_seq_dict[dataset]):
-        # for gallery_seq in gallery_seq_dict[dataset]:
         gallery_seq = gallery_seq_dict[dataset][p]
         gseq_mask = np.isin(seq_type, gallery_seq)
         gallery_x = feature[gseq_mask, :]
-        # print("gallery_x", gallery_x.shape)
         gallery_y = label[gseq_mask]
         gallery_view = view_np[gseq_mask]
+        gallery_seq_list = seq_type[gseq_mask]
 
         pseq_mask = np.isin(seq_type, probe_seq)
         probe_x = feature[pseq_mask, :]
         probe_y = label[pseq_mask]
         probe_view = view_np[pseq_mask]
+        probe_seq_list = seq_type[pseq_mask]
 
-        msg_mgr.log_info(
-            ("gallery length", len(gallery_y), gallery_seq, "probe length", len(probe_y), probe_seq))
+        msg_mgr.log_info(("gallery length", len(gallery_y), gallery_seq, "probe length", len(probe_y), probe_seq))
         distmat = cuda_dist(probe_x, gallery_x, metric).cpu().numpy()
-        # cmc, ap = evaluate(distmat, probe_y, gallery_y, probe_view, gallery_view)
-        cmc, ap, inp = evaluate_many(distmat, probe_y, gallery_y, probe_view, gallery_view)
+
+        cmc, ap, inp = evaluate_many(distmat, gallery_y, gallery_view, gallery_seq_list, probe_y, probe_view, probe_seq_list, dataset_path)
         ap_save.append(ap)
         cmc_save.append(cmc[0])
         minp.append(inp)
 
-    # print(ap_save, cmc_save)
-
     msg_mgr.log_info(
         '===Rank-1 (Exclude identical-view cases for Person Re-Identification)===')
     msg_mgr.log_info('CL: %.3f,\tUP: %.3f,\tDN: %.3f,\tBG: %.3f' % (
-        cmc_save[0]*100, cmc_save[1]*100, cmc_save[2]*100, cmc_save[3]*100))
+        cmc_save[0] * 100, cmc_save[1] * 100, cmc_save[2] * 100, cmc_save[3] * 100))
 
     msg_mgr.log_info(
         '===mAP (Exclude identical-view cases for Person Re-Identification)===')
     msg_mgr.log_info('CL: %.3f,\tUP: %.3f,\tDN: %.3f,\tBG: %.3f' % (
-        ap_save[0]*100, ap_save[1]*100, ap_save[2]*100, ap_save[3]*100))
+        ap_save[0] * 100, ap_save[1] * 100, ap_save[2] * 100, ap_save[3] * 100))
 
     msg_mgr.log_info(
         '===mINP (Exclude identical-view cases for Person Re-Identification)===')
     msg_mgr.log_info('CL: %.3f,\tUP: %.3f,\tDN: %.3f,\tBG: %.3f' %
-                     (minp[0]*100, minp[1]*100, minp[2]*100, minp[3]*100))
+                     (minp[0] * 100, minp[1] * 100, minp[2] * 100, minp[3] * 100))
 
     for (p, probe_seq) in enumerate(probe_seq_dict[dataset]):
         # for gallery_seq in gallery_seq_dict[dataset]:
         gallery_seq = gallery_seq_dict[dataset][p]
         for (v1, probe_view) in enumerate(view_list):
             for (v2, gallery_view) in enumerate(view_list):
-                gseq_mask = np.isin(seq_type, gallery_seq) & np.isin(
-                    view, [gallery_view])
+                gseq_mask = np.isin(seq_type, gallery_seq) & np.isin(view, [gallery_view])
                 gallery_x = feature[gseq_mask, :]
                 gallery_y = label[gseq_mask]
 
-                pseq_mask = np.isin(seq_type, probe_seq) & np.isin(
-                    view, [probe_view])
+                pseq_mask = np.isin(seq_type, probe_seq) & np.isin(view, [probe_view])
                 probe_x = feature[pseq_mask, :]
                 probe_y = label[pseq_mask]
 
                 dist = cuda_dist(probe_x, gallery_x, metric)
                 idx = dist.sort(1)[1].cpu().numpy()
-                # print(p, v1, v2, "\n")
                 acc[p, v1, v2, :] = np.round(
-                    np.sum(np.cumsum(np.reshape(probe_y, [-1, 1]) == gallery_y[idx[:, 0:num_rank]], 1) > 0,
-                           0) * 100 / dist.shape[0], 2)
+                    np.sum(np.cumsum(np.reshape(probe_y, [-1, 1]) == gallery_y[idx[:, 0:num_rank]], 1) > 0, 0) * 100 /
+                    dist.shape[0], 2)
     result_dict = {}
     for i in range(1):
         msg_mgr.log_info(
