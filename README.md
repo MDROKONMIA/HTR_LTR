@@ -77,6 +77,7 @@ Follow the instructions in:
 Prepare the dataset in the required **OpenGait format** before training.
 
 ---
+For CCPG, multiple gait sequences belonging to the same subject within a single camera are aggregated into a single representation for each sequence type.
 
 # Training
 
