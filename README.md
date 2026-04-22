@@ -13,7 +13,7 @@ Published in **IEEE Access (2026)**
 📄 Paper:
 [https://ieeexplore.ieee.org/document/11433429](https://ieeexplore.ieee.org/document/11433429)
 
-This work proposes **HTR-LTR**, a multi-temporal feature integration framework designed to jointly learn **motion dynamics and semantic representations** for improved gait recognition performance.
+This work proposes **HTR-LTR**, a multi-temporal feature integration framework that jointly learns **motion dynamics and semantic representations** to improve gait recognition performance.
 
 The implementation is built on top of the **OpenGait** framework.
 
@@ -77,7 +77,7 @@ Follow the instructions in:
 Prepare the dataset in the required **OpenGait format** before training.
 
 ---
-For CCPG, multiple gait sequences belonging to the same subject within a single camera are aggregated into a single representation for each sequence type.
+N.B. For CCPG, multiple gait sequences from the same subject captured by a single camera are aggregated into a single representation for each sequence type.
 
 # Training
 
@@ -137,30 +137,6 @@ Example scripts are available in:
 
 ```
 test.sh
-```
-
----
-
-# Customization
-
-You can extend the framework by following the documentation:
-
-Detailed configuration:
-
-```
-docs/1.detailed_config.md
-```
-
-Create a custom model:
-
-```
-docs/2.how_to_create_your_model.md
-```
-
-Advanced features:
-
-```
-docs/3.advanced_usages.md
 ```
 
 ---
