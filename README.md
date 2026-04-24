@@ -125,7 +125,7 @@ Saves terminal logs to a file.
 ## Testing
 
 Download pretrained checkpoints:
-[https://drive.google.com/drive/folders/1uCYQRGiUVcbq3e3Mnr_pkju17U-hSwRU?usp=sharing](https://drive.google.com/drive/folders/1uCYQRGiUVcbq3e3Mnr_pkju17U-hSwRU?usp=sharing)
+[https://drive.google.com/file/d/1-HxQPEKeo1oMRknaZRvQ5-jzS3wZET_Y/view?usp=sharing](https://drive.google.com/file/d/1-HxQPEKeo1oMRknaZRvQ5-jzS3wZET_Y/view?usp=sharing)
 
 Run evaluation:
 
