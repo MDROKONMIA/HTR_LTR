@@ -1,27 +1,38 @@
+
+---
+
 # HTR-LTR: Multi-Temporal Feature Integration for Gait Recognition
 
 [![Paper](https://img.shields.io/badge/Paper-IEEE%20Access-blue)](https://ieeexplore.ieee.org/document/11433429)
 [![Framework](https://img.shields.io/badge/Framework-OpenGait-orange)](https://github.com/ShiqiYu/OpenGait)
 [![License](https://img.shields.io/badge/License-Academic%20Use-green)](#license)
 
-Official implementation of the paper:
+Official implementation of:
 
 **Multi-Temporal Feature Integration: Learning Complementary Motion and Semantic Representations for Gait Recognition**
+Published in *IEEE Access, 2026*
 
-Published in **IEEE Access (2026)**
-
-📄 Paper:
+🔗 Paper:
 [https://ieeexplore.ieee.org/document/11433429](https://ieeexplore.ieee.org/document/11433429)
-
-This work proposes **HTR-LTR**, a multi-temporal feature integration framework that jointly learns **motion dynamics and semantic representations** to improve gait recognition performance.
-
-The implementation is built on top of the **OpenGait** framework.
 
 ---
 
-# Installation
+## Overview
 
-## 1 Clone Repository
+This repository presents **HTR-LTR**, a multi-temporal feature integration framework designed for robust gait recognition. The method jointly learns:
+
+* **Motion dynamics**
+* **Semantic representations**
+
+By integrating these complementary features, HTR-LTR achieves improved recognition performance under challenging conditions.
+
+The implementation is built upon the **OpenGait** framework.
+
+---
+
+## Installation
+
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/MDROKONMIA/HTR_LTR.git
@@ -30,9 +41,9 @@ cd HTR_LTR
 
 ---
 
-## 2 Install Dependencies
+### 2. Install Dependencies
 
-Required packages:
+#### Required Packages
 
 * PyTorch ≥ 1.10
 * torchvision
@@ -46,9 +57,7 @@ Required packages:
 
 ---
 
-### Install using Conda (Recommended)
-
-Using **Anaconda**:
+### Option A: Install with Conda (Recommended)
 
 ```bash
 conda install tqdm pyyaml tensorboard opencv kornia einops -c conda-forge
@@ -57,7 +66,7 @@ conda install pytorch==1.10 torchvision -c pytorch
 
 ---
 
-### Install using pip
+### Option B: Install with pip
 
 ```bash
 pip install tqdm pyyaml tensorboard opencv-python kornia einops
@@ -66,7 +75,7 @@ pip install torch==1.10 torchvision==0.11
 
 ---
 
-# Dataset Preparation
+## Dataset Preparation
 
 Follow the instructions in:
 
@@ -74,13 +83,15 @@ Follow the instructions in:
 2.prepare_dataset.md
 ```
 
-Prepare the dataset in the required **OpenGait format** before training.
+Ensure datasets are formatted according to the **OpenGait** structure before training.
+
+**Note:** For the CCPG dataset, duplicate sequences of the same subject captured by the same camera merged into a single sequence.
 
 ---
 
-# Training
+## Training
 
-Train the HTR-LTR model:
+To train the HTR-LTR model:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 torchrun \
@@ -93,27 +104,30 @@ opengait/main.py \
 
 ### Arguments
 
-| Argument             | Description         |
-| -------------------- | ------------------- |
-| CUDA_VISIBLE_DEVICES | GPU device ID       |
-| --nproc_per_node     | Number of GPUs used |
-| --master-port        | Communication port  |
-| --cfgs               | Configuration file  |
-| --phase train        | Training mode       |
+| Argument             | Description                   |
+| -------------------- | ----------------------------- |
+| CUDA_VISIBLE_DEVICES | GPU ID(s) to use              |
+| --nproc_per_node     | Number of GPUs                |
+| --master-port        | Port for distributed training |
+| --cfgs               | Path to config file           |
+| --phase train        | Training mode                 |
 
-Optional:
+**Optional:**
 
-```
+```bash
 --log_to_file
 ```
 
-Save terminal logs to disk.
+Saves terminal logs to a file.
 
 ---
 
-# Testing
+## Testing
 
-Evaluate a trained model:
+Download pretrained checkpoints:
+[https://drive.google.com/drive/folders/1uCYQRGiUVcbq3e3Mnr_pkju17U-hSwRU?usp=sharing](https://drive.google.com/drive/folders/1uCYQRGiUVcbq3e3Mnr_pkju17U-hSwRU?usp=sharing)
+
+Run evaluation:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 torchrun \
@@ -124,13 +138,11 @@ opengait/main.py \
 --phase test
 ```
 
-Optional:
+**Optional:**
 
+```bash
+--iter <checkpoint_iteration>
 ```
---iter
-```
-
-Specify a checkpoint iteration.
 
 Example scripts are available in:
 
@@ -140,11 +152,11 @@ test.sh
 
 ---
 
-# Warning
+## ⚠️ Notes on Distributed Training
 
-When using **Distributed Data Parallel (DDP)**, abnormal termination may leave zombie processes.
+When using Distributed Data Parallel (DDP), abnormal termination may leave residual (zombie) processes.
 
-Clean them using:
+Clean them with:
 
 ```bash
 sh misc/clean_process.sh
@@ -152,11 +164,11 @@ sh misc/clean_process.sh
 
 ---
 
-# Citation
+## Citation
 
-If you use this work in your research, please cite:
+If you use this work, please cite:
 
-## HTR-LTR Paper
+### HTR-LTR
 
 ```bibtex
 @article{Mia2026,
@@ -170,7 +182,7 @@ If you use this work in your research, please cite:
 
 ---
 
-## OpenGait Framework
+### OpenGait
 
 ```bibtex
 @inproceedings{Fan_2023_CVPR,
@@ -193,17 +205,15 @@ If you use this work in your research, please cite:
 
 ---
 
-# Acknowledgements
+## Acknowledgements
 
-This work builds upon the **OpenGait** framework developed by researchers from the **Chinese Academy of Sciences**.
-
----
-
-# License
-
-This project is **for academic research purposes only**.
-
-Commercial use is **not permitted**.
+This work builds upon the **OpenGait** framework developed by researchers from the Chinese Academy of Sciences.
 
 ---
 
+## License
+
+This project is intended **for academic research purposes only**.
+**Commercial use is not permitted.**
+
+---
