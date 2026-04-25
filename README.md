@@ -85,7 +85,7 @@ Follow the instructions in:
 
 Ensure datasets are formatted according to the **OpenGait** structure before training.
 
-**Note:** For the CCPG dataset, duplicate sequences of the same subject captured by the same camera merged into a single sequence.
+**Note:** For the CCPG dataset, multiple sequences of the same subject captured by the same camera were merged into a single sequence.
 
 ---
 
