@@ -226,7 +226,7 @@ def evaluate_CCPG(data, dataset,dataset_path, metric='euc'):
         msg_mgr.log_info(("gallery length", len(gallery_y), gallery_seq, "probe length", len(probe_y), probe_seq))
         distmat = cuda_dist(probe_x, gallery_x, metric).cpu().numpy()
 
-        cmc, ap, inp = evaluate_many(distmat, gallery_y, gallery_view, gallery_seq_list, probe_y, probe_view, probe_seq_list, dataset_path)
+        cmc, ap, inp = evaluate_many(distmat, probe_y, gallery_y, probe_view, gallery_view)
         ap_save.append(ap)
         cmc_save.append(cmc[0])
         minp.append(inp)
