@@ -134,7 +134,7 @@ def single_view_gallery_evaluation(feature_array, label_array, sequence_type_arr
                     # Lookup frame counts for all probes
                     frames = np.array([gallery_frame_count[label].get(candidate_seq, {}).get(gallery_view, -1)
                                        for label in probe_labels])
-                    valid_matrix[:, seq_idx] = frames > 15
+                    valid_matrix[:, seq_idx] = frames >= 15
 
                 # Any valid gallery sequence per probe
                 valid_probe_mask = np.any(valid_matrix, axis=1)
